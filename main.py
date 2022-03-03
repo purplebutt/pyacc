@@ -4,53 +4,69 @@ import datetime as dt
 
 # constants
 XL_FILE = "jurnal.xls"
-SHEET_NAME = ["COA", "JURNAL"]
+XL_CT = "closing_template.xls"
+SHEET_NAME = ["AG", "COA", "JURNAL"]
 
 def pandas_option(pd_obj):
     pd_obj.set_option("display.max_columns", None)
     pd_obj.set_option("display.width", None)
 
-def dt_by_month(all:pd.DataFrame):
+def read_data(sheet_name) -> (pd.DataFrame, pd.DataFrame):
+    je = pd.read_excel(XL_FILE, sheet_name=sheet_name[2])
+    coa = pd.read_excel(XL_FILE, sheet_name=sheet_name[1])
+    ag = pd.read_excel(XL_FILE, sheet_name=sheet_name[0])
+    return (ag, coa, je)
+
+def split_by_month(all:pd.DataFrame):
     result = {}
     for d in all["month"].unique():
         result[d] = all.loc[all.month==d]
     return result
 
-def read_data(sheet_name) -> (pd.DataFrame, pd.DataFrame):
-    jurnal = pd.read_excel(XL_FILE, sheet_name=sheet_name[1])
-    coa = pd.read_excel(XL_FILE, sheet_name=sheet_name[0])
-    return (jurnal, coa)
-
-def combine_data(data: (pd.DataFrame, pd.DataFrame)) -> pd.DataFrame:
-    all = pd.DataFrame.join(self=data[0].set_index("Acc Number"), other=data[1].set_index("Acc Num"), how="left")
-    all["month"] = all["Date"].dt.month
-    all["amount"] = all["DEBIT"]-all["CREDIT"]
+def combine_data(data: (pd.DataFrame, pd.DataFrame, pd.DataFrame)) -> pd.DataFrame:
+    ag_coa = pd.DataFrame.join(self=data[0].set_index("Code"), other=data[1].set_index("Group"), how="left")
+    all = pd.DataFrame.join(self=ag_coa.set_index("Acc Num"), other=data[2].set_index("Acc Number"), how="right")
+    all = pd.DataFrame.reset_index(all)
     return all
 
-def run():
-    # pandas_option(pd)
-    # jurnal = pd.read_excel(XL_FILE, sheet_name=SHEET_NAME[1])
-    # coa = pd.read_excel(XL_FILE, sheet_name=SHEET_NAME[0])
-    # * read data
-    dt_tup=read_data(SHEET_NAME)
-    # all = pd.DataFrame.join(self=jurnal.set_index("Acc Number"), other=coa.set_index("Acc Num"), how="left")
-    # all["month"] = all["Date"].dt.month
-    # all["amount"] = all["DEBIT"]-all["CREDIT"]
-    all=combine_data(dt_tup)
+def fixed_data(data: pd.DataFrame):
+    # -> Add additional fields
+    data["month"] = data["Date"].dt.month
+    data["amount"] = data["DEBIT"]-data["CREDIT"]
+    # -> Remove unnecessary fields
+    pd.DataFrame.drop(data, columns=["DEBIT", "CREDIT"], inplace=True)
+    return data
 
-    x = dt_by_month(all)  # parse transactions data into dictionary
-    for i in range(len(x)):
-        x[i+1] = x[i+1].groupby("Account Name").sum()
-        x[i+1] = x[i+1].join(other=dt_tup[1].set_index("Account Name"), how="left", rsuffix="coa")
-        x[i+1].drop(columns=["month", "Normal","DEBIT", "CREDIT"], inplace=True)
-        pd.DataFrame.sort_values(x[i+1], "Acc Num", inplace=True)
-        pd.DataFrame.reset_index(self=x[i+1],inplace=True)
-        pd.DataFrame.set_index(self=x[i+1], keys="Acc Num", inplace=True)
-        new_clm_order = ["Group", "Header", "Account Name", "amount"]
-        x[i+1] = x[i+1].reindex(columns=new_clm_order)
+def calc_il(data: pd.DataFrame) -> (int, int):
+    x = data.groupby(by=["Report"]).sum()
+    return (x.iloc[0,2], x.iloc[1,2])
+
+
+def run():
+    pandas_option(pd)
+    x = read_data(SHEET_NAME)
+    x = combine_data(x)
+    x = fixed_data(x)
     return x
+
+
+def make_closing(data, date=None):
+    v = calc_il(data)   # ? get net income
+    # -> Update juga data bulan dan tanggal yang masih kosong
+    closing = pd.DataFrame([
+        [9999, "helper", "IS", "Net/Loss - Summary", "D", "HELPER", "", "Net/Loss-Summary", 1, v[0]],
+        [3999, "helper", "IS", "Net/Loss - Summary", "C", "HELPER", "", "Net/Loss-Summary", 1, v[1]]
+    ], columns=["index", "Group", "Report", "Account Name", "Normal", "Header", "Date", "Description", "month", "amount"])
+    x = pd.concat([data, closing])
+    return x
+
 
 #! program main entrance
 if __name__ == '__main__':
-    x=run()
-    print_result(x)
+    x = run()
+    sd = split_by_month(x)
+    for k, v in sd.items():
+        print(f"Period: {k}")
+        v = make_closing(v)
+        print("======================")
+        print(v)
