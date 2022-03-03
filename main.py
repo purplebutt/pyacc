@@ -1,5 +1,6 @@
 import pandas as pd
 import datetime as dt
+import calendar as cld
 
 
 # constants
@@ -41,6 +42,12 @@ def calc_il(data: pd.DataFrame) -> (int, int):
     x = data.groupby(by=["Report"]).sum()
     return (x.iloc[0,2], x.iloc[1,2])
 
+def get_eom(df:pd.DataFrame) -> dt.datetime:
+    base_date = df.loc[:,"Date"].iloc[0]
+    calendar = cld.monthrange(base_date.year, base_date.month) 
+    eom = dt.datetime(year=base_date.year, month=base_date.month, day=calendar[1])
+    return eom
+
 
 def run():
     pandas_option(pd)
@@ -50,12 +57,12 @@ def run():
     return x
 
 
-def make_closing(data, date=None):
+def make_closing(data):
     v = calc_il(data)   # ? get net income
-    # -> Update juga data bulan dan tanggal yang masih kosong
+    per = get_eom(v)    # ? get end of month date (because Net/Los summary entry always use end month date)
     closing = pd.DataFrame([
-        [9999, "helper", "IS", "Net/Loss - Summary", "D", "HELPER", "", "Net/Loss-Summary", 1, v[0]],
-        [3999, "helper", "IS", "Net/Loss - Summary", "C", "HELPER", "", "Net/Loss-Summary", 1, v[1]]
+        [9999, "helper", "IS", "Net/Loss - Summary", "D", "HELPER", per, "Net/Loss-Summary", per.month, v[0]],
+        [3999, "helper", "IS", "Net/Loss - Summary", "C", "HELPER", per, "Net/Loss-Summary", per.month, v[1]]
     ], columns=["index", "Group", "Report", "Account Name", "Normal", "Header", "Date", "Description", "month", "amount"])
     x = pd.concat([data, closing])
     return x
@@ -66,7 +73,6 @@ if __name__ == '__main__':
     x = run()
     sd = split_by_month(x)
     for k, v in sd.items():
-        print(f"Period: {k}")
         v = make_closing(v)
         print("======================")
         print(v)
